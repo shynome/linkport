@@ -28,8 +28,8 @@ var args struct {
 func init() {
 	flag.BoolVar(&args.isServer, "server", isServer, "")
 	flag.StringVar(&args.endpoint, "api", "https://lens.slive.fun/", "")
-	flag.StringVar(&args.user, "user", "test", "")
-	flag.StringVar(&args.pass, "pass", "vvv", "")
+	flag.StringVar(&args.user, "user", "", "")
+	flag.StringVar(&args.pass, "pass", "", "")
 	flag.StringVar(&args.port, "port", "", "")
 }
 
@@ -81,10 +81,31 @@ func runServer() {
 	l := wl.Listen()
 	link := try.To1(WithTopic(args.endpoint, topic))
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, "hello world")
-	})
-	go http.Serve(l, nil)
+	if args.port == "" {
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, "hello world")
+		})
+		go http.Serve(l, nil)
+	} else {
+		go func() {
+			for {
+				conn := try.To1(l.Accept())
+				go func(conn net.Conn) {
+					defer conn.Close()
+
+					fconn, err := net.Dial("tcp", args.port)
+					if err != nil {
+						fmt.Printf("link %s failed", args.port)
+						return
+					}
+					defer fconn.Close()
+
+					go io.Copy(fconn, conn)
+					io.Copy(conn, fconn)
+				}(conn)
+			}
+		}()
+	}
 
 	var req = try.To1(http.NewRequest(http.MethodGet, link, nil))
 	req.SetBasicAuth(args.user, args.pass)
